@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TrustVault - Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div class="dashboard">
+
+        <header class="dashboard-header">
+            <div>
+                <h1>TrustVault</h1>
+                <p>Secure Document Dashboard</p>
+            </div>
+
+            <button id="logoutButton" class="logout-button">
+                Logout
+            </button>
+        </header>
+
+        <main>
+            <section class="upload-card">
+
+    <h2>Upload Document</h2>
+
+    <form id="uploadForm">
+
+        <label for="file">Choose File</label>
+
+        <input
+            type="file"
+            id="file"
+            required
+        >
+
+        <label for="category">Category</label>
+
+        <select id="category">
+            <option value="Other">Other</option>
+            <option value="Personal">Personal</option>
+            <option value="Work">Work</option>
+            <option value="Academic">Academic</option>
+            <option value="Legal">Legal</option>
+            <option value="Financial">Financial</option>
+        </select>
+
+        <button type="submit">
+            Upload Document
+        </button>
+
+    </form>
+
+    <p id="uploadMessage"></p>
+
+</section>
+            <section class="welcome-card">
+                <h2>Welcome</h2>
+                <p id="userInfo">Loading user information...</p>
+            </section>
+
+            <section class="documents-card">
+
+                <div class="section-header">
+
+                    <h2>Your Documents</h2>
+                    <div class="search-container">
+
+    <input
+        type="text"
+        id="searchFilename"
+        placeholder="Search by filename..."
+    >
+
+    <select id="searchCategory">
+        <option value="">All Categories</option>
+        <option value="Personal">Personal</option>
+        <option value="Work">Work</option>
+        <option value="Academic">Academic</option>
+        <option value="Legal">Legal</option>
+        <option value="Financial">Financial</option>
+        <option value="Other">Other</option>
+    </select>
+
+    <button id="searchButton">
+        Search
+    </button>
+
+</div>
+
+                    <button id="refreshButton">
+                        Refresh
+                    </button>
+                </div>
+
+                <div id="message"></div>
+
+                <div id="documentsContainer">
+                    Loading documents...
+                </div>
+
+            </section>
+
+        </main>
+
+    </div>
+
+    <script src="dashboard.js"></script>
+
+</body>
+</html>

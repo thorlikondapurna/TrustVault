@@ -3,9 +3,15 @@ import uuid
 
 from typing import Optional
 from datetime import date
-from datetime import datetime
 
-from fastapi import FastAPI, Depends, HTTPException, File, UploadFile
+from fastapi import (
+    FastAPI,
+    Depends,
+    HTTPException,
+    File,
+    UploadFile
+)
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from sqlalchemy.orm import Session
@@ -25,6 +31,10 @@ from backend.authorization import authorize_document_access
 from backend.audit import create_audit_log
 
 
+# ============================================================
+# FASTAPI APPLICATION
+# ============================================================
+
 app = FastAPI(
     title="TrustVault",
     description="Secure document sharing with a real audit trail",
@@ -32,14 +42,40 @@ app = FastAPI(
 )
 
 
+# ============================================================
+# CORS
+# ============================================================
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://127.0.0.1:5500"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ============================================================
+# BASIC ROUTES
+# ============================================================
+
 @app.get("/")
 def home():
-    return {"message": "Welcome to TrustVault"}
+    return {
+        "message": "Welcome to TrustVault"
+    }
 
 
 @app.get("/health")
 def health():
-    return {"status": "healthy"}
+    return {
+        "status": "healthy"
+    }
+
+
+# ============================================================
+# CURRENT USER PROFILE
+# ============================================================
 
 @app.get("/me")
 def get_my_profile(
@@ -52,13 +88,21 @@ def get_my_profile(
         "role": current_user.role
     }
 
+
+# ============================================================
+# REGISTER
+# ============================================================
+
 @app.post("/register")
 def register_user(
     user_data: UserRegister,
     db: Session = Depends(get_db)
 ):
     # Only OWNER and VIEWER can register publicly
-    allowed_roles = {"OWNER", "VIEWER"}
+    allowed_roles = {
+        "OWNER",
+        "VIEWER"
+    }
 
     if user_data.role.upper() not in allowed_roles:
         raise HTTPException(
@@ -66,7 +110,7 @@ def register_user(
             detail="Only OWNER or VIEWER registration is allowed"
         )
 
-    # Check whether the email already exists
+    # Check whether email already exists
     existing_user = db.query(User).filter(
         User.email == user_data.email
     ).first()
@@ -97,6 +141,11 @@ def register_user(
         "role": new_user.role
     }
 
+
+# ============================================================
+# LOGIN
+# ============================================================
+
 @app.post("/login")
 def login_user(
     user_data: UserLogin,
@@ -107,7 +156,7 @@ def login_user(
         User.email == user_data.email
     ).first()
 
-    # Do not reveal whether the email exists
+    # Do not reveal whether email exists
     if not user or not verify_password(
         user_data.password,
         user.password_hash
@@ -126,22 +175,41 @@ def login_user(
         "token_type": "bearer"
     }
 
-def validate_file_signature(file_data: bytes, content_type: str) -> bool:
+
+# ============================================================
+# FILE SIGNATURE VALIDATION
+# ============================================================
+
+def validate_file_signature(
+    file_data: bytes,
+    content_type: str
+) -> bool:
+
     signatures = {
         "application/pdf": b"%PDF",
         "image/jpeg": b"\xff\xd8\xff",
         "image/png": b"\x89PNG\r\n\x1a\n",
     }
 
+    # Plain text does not have one fixed magic signature
     if content_type == "text/plain":
         return True
 
-    expected_signature = signatures.get(content_type)
+    expected_signature = signatures.get(
+        content_type
+    )
 
     if expected_signature is None:
         return False
 
-    return file_data.startswith(expected_signature)
+    return file_data.startswith(
+        expected_signature
+    )
+
+
+# ============================================================
+# UPLOAD DOCUMENT
+# ============================================================
 
 @app.post("/documents/upload")
 async def upload_document(
@@ -163,6 +231,7 @@ async def upload_document(
 
     # Validate MIME type
     if file.content_type not in allowed_types:
+
         create_audit_log(
             db=db,
             user_id=current_user.id,
@@ -179,8 +248,12 @@ async def upload_document(
     # Read file
     file_data = await file.read()
 
-        # Validate file content using magic bytes
-    if not validate_file_signature(file_data, file.content_type):
+    # Validate file signature
+    if not validate_file_signature(
+        file_data,
+        file.content_type
+    ):
+
         create_audit_log(
             db=db,
             user_id=current_user.id,
@@ -193,9 +266,10 @@ async def upload_document(
             status_code=400,
             detail="File content does not match declared file type"
         )
-    
+
     # Validate file size
     if len(file_data) > max_file_size:
+
         create_audit_log(
             db=db,
             user_id=current_user.id,
@@ -210,11 +284,20 @@ async def upload_document(
         )
 
     # Create secure storage filename
-    file_extension = os.path.splitext(file.filename)[1]
-    secure_filename = f"{uuid.uuid4()}{file_extension}"
+    file_extension = os.path.splitext(
+        file.filename
+    )[1]
+
+    secure_filename = (
+        f"{uuid.uuid4()}{file_extension}"
+    )
 
     storage_directory = "storage"
-    os.makedirs(storage_directory, exist_ok=True)
+
+    os.makedirs(
+        storage_directory,
+        exist_ok=True
+    )
 
     storage_path = os.path.join(
         storage_directory,
@@ -222,8 +305,14 @@ async def upload_document(
     )
 
     # Save file
-    with open(storage_path, "wb") as output_file:
-        output_file.write(file_data)
+    with open(
+        storage_path,
+        "wb"
+    ) as output_file:
+
+        output_file.write(
+            file_data
+        )
 
     # Create database record
     document = Document(
@@ -257,13 +346,20 @@ async def upload_document(
         "size": document.file_size
     }
 
+
+# ============================================================
+# DOWNLOAD DOCUMENT
+# ============================================================
+
 @app.get("/documents/{document_id}/download")
 def download_document(
     document_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+
     try:
+
         # Check authorization BEFORE accessing the file
         document = authorize_document_access(
             document_id=document_id,
@@ -273,6 +369,7 @@ def download_document(
         )
 
     except HTTPException as e:
+
         # Record denied download attempt
         create_audit_log(
             db=db,
@@ -285,8 +382,11 @@ def download_document(
 
         raise
 
-    # Verify that the stored file actually exists
-    if not os.path.isfile(document.storage_path):
+    # Verify stored file exists
+    if not os.path.isfile(
+        document.storage_path
+    ):
+
         create_audit_log(
             db=db,
             user_id=current_user.id,
@@ -318,6 +418,10 @@ def download_document(
     )
 
 
+# ============================================================
+# GRANT / UPDATE PERMISSION
+# ============================================================
+
 @app.post("/documents/{document_id}/permissions")
 def grant_permission(
     document_id: int,
@@ -325,19 +429,22 @@ def grant_permission(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Find the document
+
+    # Find document
     document = db.query(Document).filter(
         Document.id == document_id
     ).first()
 
     if not document:
+
         raise HTTPException(
             status_code=404,
             detail="Document not found"
         )
 
-    # Only the document owner can grant permissions
+    # Only owner can grant permissions
     if document.owner_id != current_user.id:
+
         create_audit_log(
             db=db,
             user_id=current_user.id,
@@ -353,9 +460,15 @@ def grant_permission(
         )
 
     # Validate permission type
-    permission_type = permission_data.permission.upper()
+    permission_type = (
+        permission_data.permission.upper()
+    )
 
-    if permission_type not in {"READ", "EDIT"}:
+    if permission_type not in {
+        "READ",
+        "EDIT"
+    }:
+
         create_audit_log(
             db=db,
             user_id=current_user.id,
@@ -370,33 +483,43 @@ def grant_permission(
             detail="Permission must be READ or EDIT"
         )
 
-    # Check that target user exists
+    # Check target user
     target_user = db.query(User).filter(
         User.id == permission_data.user_id
     ).first()
 
     if not target_user:
+
         raise HTTPException(
             status_code=404,
             detail="Target user not found"
         )
 
-    # Owner does not need a separate permission
+    # Owner does not need separate permission
     if target_user.id == current_user.id:
+
         raise HTTPException(
             status_code=400,
             detail="Document owner already has full access"
         )
 
     # Check existing permission
-    existing_permission = db.query(Permission).filter(
+    existing_permission = db.query(
+        Permission
+    ).filter(
         Permission.document_id == document_id,
         Permission.user_id == target_user.id
     ).first()
 
     if existing_permission:
-        existing_permission.permission = permission_type
-        existing_permission.granted_by = current_user.id
+
+        existing_permission.permission = (
+            permission_type
+        )
+
+        existing_permission.granted_by = (
+            current_user.id
+        )
 
         db.commit()
 
@@ -404,6 +527,7 @@ def grant_permission(
         message = "Permission updated successfully"
 
     else:
+
         new_permission = Permission(
             document_id=document_id,
             user_id=target_user.id,
@@ -417,7 +541,7 @@ def grant_permission(
         action = "GRANT_PERMISSION"
         message = "Permission granted successfully"
 
-    # Audit the successful permission change
+    # Audit permission change
     create_audit_log(
         db=db,
         user_id=current_user.id,
@@ -437,6 +561,11 @@ def grant_permission(
         "permission": permission_type
     }
 
+
+# ============================================================
+# EDIT DOCUMENT
+# ============================================================
+
 @app.put("/documents/{document_id}")
 async def edit_document(
     document_id: int,
@@ -444,8 +573,10 @@ async def edit_document(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+
     try:
-        # EDIT permission is required
+
+        # EDIT permission required
         document = authorize_document_access(
             document_id=document_id,
             current_user=current_user,
@@ -454,6 +585,7 @@ async def edit_document(
         )
 
     except HTTPException as e:
+
         create_audit_log(
             db=db,
             user_id=current_user.id,
@@ -465,7 +597,7 @@ async def edit_document(
 
         raise
 
-    # Validate file type
+    # Allowed file types
     allowed_types = {
         "application/pdf",
         "text/plain",
@@ -474,6 +606,7 @@ async def edit_document(
     }
 
     if file.content_type not in allowed_types:
+
         create_audit_log(
             db=db,
             user_id=current_user.id,
@@ -488,13 +621,14 @@ async def edit_document(
             detail="Unsupported file type"
         )
 
-    # Read the replacement file
+    # Read replacement file
     file_data = await file.read()
 
-    # 10 MB limit
+    # Maximum file size
     max_file_size = 10 * 1024 * 1024
 
     if len(file_data) > max_file_size:
+
         create_audit_log(
             db=db,
             user_id=current_user.id,
@@ -509,11 +643,37 @@ async def edit_document(
             detail="File size exceeds 10 MB"
         )
 
-    # Replace the existing stored file
-    with open(document.storage_path, "wb") as output_file:
-        output_file.write(file_data)
+    # Validate replacement file signature
+    if not validate_file_signature(
+        file_data,
+        file.content_type
+    ):
 
-    # Update document metadata
+        create_audit_log(
+            db=db,
+            user_id=current_user.id,
+            document_id=document_id,
+            action="EDIT",
+            result="DENIED",
+            details="File content does not match declared file type"
+        )
+
+        raise HTTPException(
+            status_code=400,
+            detail="File content does not match declared file type"
+        )
+
+    # Replace existing file
+    with open(
+        document.storage_path,
+        "wb"
+    ) as output_file:
+
+        output_file.write(
+            file_data
+        )
+
+    # Update metadata
     document.filename = file.filename
     document.file_size = len(file_data)
     document.mime_type = file.content_type
@@ -538,18 +698,25 @@ async def edit_document(
         "size": document.file_size
     }
 
+
+# ============================================================
+# DELETE DOCUMENT
+# ============================================================
+
 @app.delete("/documents/{document_id}")
 def delete_document(
     document_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Find the document
+
+    # Find document
     document = db.query(Document).filter(
         Document.id == document_id
     ).first()
 
     if not document:
+
         create_audit_log(
             db=db,
             user_id=current_user.id,
@@ -564,8 +731,9 @@ def delete_document(
             detail="Document not found"
         )
 
-    # Only the document owner can delete the document
+    # Only owner can delete
     if document.owner_id != current_user.id:
+
         create_audit_log(
             db=db,
             user_id=current_user.id,
@@ -582,6 +750,7 @@ def delete_document(
 
     # Check if already deleted
     if document.is_deleted:
+
         create_audit_log(
             db=db,
             user_id=current_user.id,
@@ -596,16 +765,21 @@ def delete_document(
             detail="Document not found"
         )
 
-    # Delete the physical file
-    if os.path.isfile(document.storage_path):
-        os.remove(document.storage_path)
+    # Delete physical file
+    if os.path.isfile(
+        document.storage_path
+    ):
 
-    # Mark the document as deleted
+        os.remove(
+            document.storage_path
+        )
+
+    # Mark as deleted
     document.is_deleted = True
 
     db.commit()
 
-    # Record successful deletion
+    # Audit successful deletion
     create_audit_log(
         db=db,
         user_id=current_user.id,
@@ -620,6 +794,11 @@ def delete_document(
         "document_id": document.id
     }
 
+
+# ============================================================
+# REVOKE PERMISSION
+# ============================================================
+
 @app.post("/documents/{document_id}/permissions/revoke")
 def revoke_permission(
     document_id: int,
@@ -627,12 +806,14 @@ def revoke_permission(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Find the document
+
+    # Find document
     document = db.query(Document).filter(
         Document.id == document_id
     ).first()
 
     if not document or document.is_deleted:
+
         create_audit_log(
             db=db,
             user_id=current_user.id,
@@ -647,8 +828,9 @@ def revoke_permission(
             detail="Document not found"
         )
 
-    # Only the document owner can revoke permissions
+    # Only owner can revoke permissions
     if document.owner_id != current_user.id:
+
         create_audit_log(
             db=db,
             user_id=current_user.id,
@@ -663,13 +845,14 @@ def revoke_permission(
             detail="Only the document owner can revoke permissions"
         )
 
-    # Find the permission
+    # Find permission
     permission = db.query(Permission).filter(
         Permission.document_id == document_id,
         Permission.user_id == revoke_data.user_id
     ).first()
 
     if not permission:
+
         create_audit_log(
             db=db,
             user_id=current_user.id,
@@ -684,18 +867,21 @@ def revoke_permission(
             detail="Permission not found"
         )
 
-    # Remove the permission
+    # Remove permission
     db.delete(permission)
     db.commit()
 
-    # Record successful revocation
+    # Audit revocation
     create_audit_log(
         db=db,
         user_id=current_user.id,
         document_id=document_id,
         action="REVOKE_PERMISSION",
         result="SUCCESS",
-        details=f"Revoked permission for user {revoke_data.user_id}"
+        details=(
+            f"Revoked permission for user "
+            f"{revoke_data.user_id}"
+        )
     )
 
     return {
@@ -703,6 +889,11 @@ def revoke_permission(
         "document_id": document_id,
         "user_id": revoke_data.user_id
     }
+
+
+# ============================================================
+# LIST / SEARCH DOCUMENTS
+# ============================================================
 
 @app.get("/documents")
 def list_documents(
@@ -714,19 +905,22 @@ def list_documents(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+
     # Start with documents that are not deleted
     query = db.query(Document).filter(
         Document.is_deleted == False
     )
 
-    # Only show documents the current user is allowed to see
+    # Admin can see document metadata
     if current_user.role == "ADMIN":
-        # Admin can see document metadata for auditing/search
+
         pass
+
     else:
-        # User can see:
+
+        # Non-admin users can see:
         # 1. Their own documents
-        # 2. Documents where they have READ or EDIT permission
+        # 2. Documents where they have READ or EDIT
         query = query.outerjoin(
             Permission,
             Permission.document_id == Document.id
@@ -734,43 +928,88 @@ def list_documents(
             (Document.owner_id == current_user.id) |
             (
                 (Permission.user_id == current_user.id) &
-                (Permission.permission.in_(["READ", "EDIT"]))
+                (
+                    Permission.permission.in_(
+                        ["READ", "EDIT"]
+                    )
+                )
             )
         )
 
     # Search by filename
     if filename:
+
         query = query.filter(
-            Document.filename.ilike(f"%{filename}%")
+            Document.filename.ilike(
+                f"%{filename}%"
+            )
         )
 
     # Search by category
     if category:
+
         query = query.filter(
-            Document.category.ilike(f"%{category}%")
+            Document.category.ilike(
+                f"%{category}%"
+            )
         )
 
     # Search by owner
     if owner_id:
+
         query = query.filter(
             Document.owner_id == owner_id
         )
-    # Search by date
+
+    # Search by start date
     if start_date:
+
         query = query.filter(
             Document.created_at >= start_date
         )
 
+    # Search by end date
     if end_date:
+
         query = query.filter(
             Document.created_at < end_date.fromordinal(
                 end_date.toordinal() + 1
             )
-    )
+        )
+
     documents = query.all()
 
-    return [
-        {
+    # ========================================================
+    # BUILD RESPONSE WITH CURRENT USER PERMISSION
+    # ========================================================
+
+    result = []
+
+    for document in documents:
+
+        # Owner has full access
+        if document.owner_id == current_user.id:
+
+            user_permission = "OWNER"
+
+        else:
+
+            permission = db.query(
+                Permission
+            ).filter(
+                Permission.document_id == document.id,
+                Permission.user_id == current_user.id
+            ).first()
+
+            if permission:
+
+                user_permission = permission.permission
+
+            else:
+
+                user_permission = None
+
+        result.append({
             "id": document.id,
             "filename": document.filename,
             "owner_id": document.owner_id,
@@ -778,24 +1017,34 @@ def list_documents(
             "file_size": document.file_size,
             "mime_type": document.mime_type,
             "created_at": document.created_at,
-            "updated_at": document.updated_at
-        }
-        for document in documents
-    ]
+            "updated_at": document.updated_at,
+            "permission": user_permission
+        })
+
+    return result
+
+
+# ============================================================
+# ADMIN AUDIT LOGS
+# ============================================================
 
 @app.get("/admin/audit-logs")
 def get_audit_logs(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+
     # Only administrators can view audit logs
     if current_user.role != "ADMIN":
+
         raise HTTPException(
             status_code=403,
             detail="Only administrators can view audit logs"
         )
 
-    logs = db.query(AuditLog).order_by(
+    logs = db.query(
+        AuditLog
+    ).order_by(
         AuditLog.timestamp.desc()
     ).all()
 

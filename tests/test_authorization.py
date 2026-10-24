@@ -27,7 +27,8 @@ def test_bob_cannot_download_alice_document():
 
     token = login_response.json()["access_token"]
 
-    # Bob tries to directly access Alice's document
+    # Bob tries to directly access Alice's document.
+    # The test assumes Bob has no permission for document 2.
     response = client.get(
         "/documents/2/download",
         headers={
@@ -36,7 +37,6 @@ def test_bob_cannot_download_alice_document():
     )
 
     assert response.status_code == 403
-
 
 def test_revoked_user_cannot_download_document():
     # Login as Alice
