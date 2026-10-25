@@ -370,11 +370,16 @@ def download_document(
 
     except HTTPException as e:
 
-        # Record denied download attempt
+        # If the document does not exist, we cannot store
+        # its ID in the audit log because of the foreign key.
+        existing_document = db.query(Document).filter(
+            Document.id == document_id
+        ).first()
+
         create_audit_log(
             db=db,
             user_id=current_user.id,
-            document_id=document_id,
+            document_id=existing_document.id if existing_document else None,
             action="DOWNLOAD",
             result="DENIED",
             details=e.detail
@@ -383,14 +388,12 @@ def download_document(
         raise
 
     # Verify stored file exists
-    if not os.path.isfile(
-        document.storage_path
-    ):
+    if not os.path.isfile(document.storage_path):
 
         create_audit_log(
             db=db,
             user_id=current_user.id,
-            document_id=document_id,
+            document_id=document.id,
             action="DOWNLOAD",
             result="FAILED",
             details="Stored file not found"
@@ -717,10 +720,13 @@ def delete_document(
 
     if not document:
 
+        # The document does not exist, so document_id
+        # must be NULL in the audit log because of the
+        # foreign-key constraint.
         create_audit_log(
             db=db,
             user_id=current_user.id,
-            document_id=document_id,
+            document_id=None,
             action="DELETE",
             result="DENIED",
             details="Document not found"
@@ -737,7 +743,7 @@ def delete_document(
         create_audit_log(
             db=db,
             user_id=current_user.id,
-            document_id=document_id,
+            document_id=document.id,
             action="DELETE",
             result="DENIED",
             details="Only the document owner can delete this document"
@@ -754,7 +760,7 @@ def delete_document(
         create_audit_log(
             db=db,
             user_id=current_user.id,
-            document_id=document_id,
+            document_id=document.id,
             action="DELETE",
             result="DENIED",
             details="Document is already deleted"
@@ -766,13 +772,8 @@ def delete_document(
         )
 
     # Delete physical file
-    if os.path.isfile(
-        document.storage_path
-    ):
-
-        os.remove(
-            document.storage_path
-        )
+    if os.path.isfile(document.storage_path):
+        os.remove(document.storage_path)
 
     # Mark as deleted
     document.is_deleted = True
@@ -793,7 +794,6 @@ def delete_document(
         "message": "Document deleted successfully",
         "document_id": document.id
     }
-
 
 # ============================================================
 # REVOKE PERMISSION

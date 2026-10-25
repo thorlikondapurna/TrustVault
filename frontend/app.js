@@ -10,7 +10,7 @@ loginForm.addEventListener("submit", async function (event) {
     message.textContent = "Logging in...";
 
     try {
-        const response = await fetch("http://127.0.0.1:8000/login", {
+        const response = await fetch("https://trustvault-api-l9hf.onrender.com/login", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
