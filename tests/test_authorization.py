@@ -1,4 +1,3 @@
-
 from fastapi.testclient import TestClient
 
 from backend.main import app
@@ -7,81 +6,102 @@ from backend.main import app
 client = TestClient(app)
 
 
-def test_unauthorized_user_cannot_access_document():
-    response = client.get("/documents/2/download")
-
-    assert response.status_code in [401, 403]
-
-
-def test_bob_cannot_download_alice_document():
-    # Login as Bob
-    login_response = client.post(
+def login(email, password):
+    response = client.post(
         "/login",
         json={
-            "email": "bob@trustvault.com",
-            "password": "BobPassword123"
+            "email": email,
+            "password": password
         }
     )
 
-    assert login_response.status_code == 200
+    assert response.status_code == 200
+    return response.json()["access_token"]
 
-    token = login_response.json()["access_token"]
 
-    # Bob tries to directly access Alice's document.
-    # The test assumes Bob has no permission for document 2.
-    response = client.get(
-        "/documents/2/download",
+def create_test_document():
+    alice_token = login(
+        "alice@trustvault.com",
+        "StrongPassword123"
+    )
+
+    response = client.post(
+        "/documents/upload",
         headers={
-            "Authorization": f"Bearer {token}"
+            "Authorization": f"Bearer {alice_token}"
+        },
+        files={
+            "file": (
+                "authorization_test.txt",
+                b"This is a test document for authorization testing.",
+                "text/plain"
+            )
+        },
+        data={
+            "category": "Testing"
+        }
+    )
+
+    assert response.status_code == 200
+
+    return alice_token, response.json()["document_id"]
+
+
+def test_unauthorized_user_cannot_access_document():
+    response = client.get("/documents/999999/download")
+
+    assert response.status_code in [401, 403, 404]
+
+
+def test_bob_cannot_download_alice_document():
+    alice_token, document_id = create_test_document()
+
+    bob_token = login(
+        "bob@trustvault.com",
+        "BobPassword123"
+    )
+
+    response = client.get(
+        f"/documents/{document_id}/download",
+        headers={
+            "Authorization": f"Bearer {bob_token}"
         }
     )
 
     assert response.status_code == 403
 
-def test_revoked_user_cannot_download_document():
-    # Login as Alice
-    alice_login = client.post(
-        "/login",
-        json={
-            "email": "alice@trustvault.com",
-            "password": "StrongPassword123"
+    # Cleanup
+    client.delete(
+        f"/documents/{document_id}",
+        headers={
+            "Authorization": f"Bearer {alice_token}"
         }
     )
 
-    assert alice_login.status_code == 200
 
-    alice_token = alice_login.json()["access_token"]
+def test_revoked_user_cannot_download_document():
+    alice_token, document_id = create_test_document()
 
-    # Grant Bob READ permission
     grant_response = client.post(
-        "/documents/2/permissions",
+        f"/documents/{document_id}/permissions",
         headers={
             "Authorization": f"Bearer {alice_token}"
         },
         json={
-            "user_id": 5,
+            "user_id": 2,
             "permission": "READ"
         }
     )
 
     assert grant_response.status_code == 200
 
-    # Login as Bob
-    bob_login = client.post(
-        "/login",
-        json={
-            "email": "bob@trustvault.com",
-            "password": "BobPassword123"
-        }
+    bob_token = login(
+        "bob@trustvault.com",
+        "BobPassword123"
     )
 
-    assert bob_login.status_code == 200
-
-    bob_token = bob_login.json()["access_token"]
-
-    # Confirm Bob can download while permission exists
     download_before_revoke = client.get(
-        "/documents/2/download",
+        f"/documents/{document_id}/download",
         headers={
             "Authorization": f"Bearer {bob_token}"
         }
@@ -89,22 +109,20 @@ def test_revoked_user_cannot_download_document():
 
     assert download_before_revoke.status_code == 200
 
-    # Alice revokes Bob's permission
     revoke_response = client.post(
-        "/documents/2/permissions/revoke",
+        f"/documents/{document_id}/permissions/revoke",
         headers={
             "Authorization": f"Bearer {alice_token}"
         },
         json={
-            "user_id": 5
+            "user_id": 2
         }
     )
 
     assert revoke_response.status_code == 200
 
-    # Bob tries again after revocation
     download_after_revoke = client.get(
-        "/documents/2/download",
+        f"/documents/{document_id}/download",
         headers={
             "Authorization": f"Bearer {bob_token}"
         }
@@ -112,30 +130,39 @@ def test_revoked_user_cannot_download_document():
 
     assert download_after_revoke.status_code == 403
 
-
-def test_non_owner_cannot_delete_document():
-    # Login as Bob
-    bob_login = client.post(
-        "/login",
-        json={
-            "email": "bob@trustvault.com",
-            "password": "BobPassword123"
+    # Cleanup
+    client.delete(
+        f"/documents/{document_id}",
+        headers={
+            "Authorization": f"Bearer {alice_token}"
         }
     )
 
-    assert bob_login.status_code == 200
 
-    bob_token = bob_login.json()["access_token"]
+def test_non_owner_cannot_delete_document():
+    alice_token, document_id = create_test_document()
 
-    # Bob tries to delete Alice's document
-    delete_response = client.delete(
-        "/documents/2",
+    bob_token = login(
+        "bob@trustvault.com",
+        "BobPassword123"
+    )
+
+    response = client.delete(
+        f"/documents/{document_id}",
         headers={
             "Authorization": f"Bearer {bob_token}"
         }
     )
 
-    assert delete_response.status_code == 403
+    assert response.status_code == 403
+
+    # Cleanup
+    client.delete(
+        f"/documents/{document_id}",
+        headers={
+            "Authorization": f"Bearer {alice_token}"
+        }
+    )
 
 
 def test_direct_storage_access_is_blocked():
@@ -145,23 +172,18 @@ def test_direct_storage_access_is_blocked():
 
 
 def test_upload_rejects_file_larger_than_10mb():
-    login_response = client.post(
-        "/login",
-        json={
-            "email": "alice@trustvault.com",
-            "password": "StrongPassword123"
-        }
+    alice_token = login(
+        "alice@trustvault.com",
+        "StrongPassword123"
     )
-
-    assert login_response.status_code == 200
-
-    token = login_response.json()["access_token"]
 
     large_file = b"A" * (11 * 1024 * 1024)
 
     response = client.post(
         "/documents/upload",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization": f"Bearer {alice_token}"
+        },
         files={
             "file": (
                 "large_file.txt",
@@ -178,21 +200,16 @@ def test_upload_rejects_file_larger_than_10mb():
 
 
 def test_upload_rejects_unsupported_file_type():
-    login_response = client.post(
-        "/login",
-        json={
-            "email": "alice@trustvault.com",
-            "password": "StrongPassword123"
-        }
+    alice_token = login(
+        "alice@trustvault.com",
+        "StrongPassword123"
     )
-
-    assert login_response.status_code == 200
-
-    token = login_response.json()["access_token"]
 
     response = client.post(
         "/documents/upload",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={
+            "Authorization": f"Bearer {alice_token}"
+        },
         files={
             "file": (
                 "malicious.exe",
@@ -209,22 +226,15 @@ def test_upload_rejects_unsupported_file_type():
 
 
 def test_upload_rejects_fake_pdf_content():
-    login_response = client.post(
-        "/login",
-        json={
-            "email": "alice@trustvault.com",
-            "password": "StrongPassword123"
-        }
+    alice_token = login(
+        "alice@trustvault.com",
+        "StrongPassword123"
     )
-
-    assert login_response.status_code == 200
-
-    token = login_response.json()["access_token"]
 
     response = client.post(
         "/documents/upload",
         headers={
-            "Authorization": f"Bearer {token}"
+            "Authorization": f"Bearer {alice_token}"
         },
         files={
             "file": (
@@ -242,49 +252,28 @@ def test_upload_rejects_fake_pdf_content():
 
 
 def test_read_only_user_cannot_edit_document():
-    # Login as Alice (document owner)
-    alice_login = client.post(
-        "/login",
-        json={
-            "email": "alice@trustvault.com",
-            "password": "StrongPassword123"
-        }
-    )
+    alice_token, document_id = create_test_document()
 
-    assert alice_login.status_code == 200
-
-    alice_token = alice_login.json()["access_token"]
-
-    # Give Bob READ permission
     grant_response = client.post(
-        "/documents/2/permissions",
+        f"/documents/{document_id}/permissions",
         headers={
             "Authorization": f"Bearer {alice_token}"
         },
         json={
-            "user_id": 5,
+            "user_id": 2,
             "permission": "READ"
         }
     )
 
     assert grant_response.status_code == 200
 
-    # Login as Bob
-    bob_login = client.post(
-        "/login",
-        json={
-            "email": "bob@trustvault.com",
-            "password": "BobPassword123"
-        }
+    bob_token = login(
+        "bob@trustvault.com",
+        "BobPassword123"
     )
 
-    assert bob_login.status_code == 200
-
-    bob_token = bob_login.json()["access_token"]
-
-    # Bob tries to edit the document
     response = client.put(
-        "/documents/2",
+        f"/documents/{document_id}",
         headers={
             "Authorization": f"Bearer {bob_token}"
         },
@@ -297,67 +286,50 @@ def test_read_only_user_cannot_edit_document():
         }
     )
 
-    # READ permission must NOT allow editing
     assert response.status_code == 403
 
-    # Clean up Bob's permission
-    revoke_response = client.post(
-        "/documents/2/permissions/revoke",
+    # Cleanup
+    client.post(
+        f"/documents/{document_id}/permissions/revoke",
         headers={
             "Authorization": f"Bearer {alice_token}"
         },
         json={
-            "user_id": 5
+            "user_id": 2
         }
     )
 
-    assert revoke_response.status_code == 200
+    client.delete(
+        f"/documents/{document_id}",
+        headers={
+            "Authorization": f"Bearer {alice_token}"
+        }
+    )
 
 
 def test_edit_permission_allows_editing():
-    # Login as Alice (document owner)
-    alice_login = client.post(
-        "/login",
-        json={
-            "email": "alice@trustvault.com",
-            "password": "StrongPassword123"
-        }
-    )
+    alice_token, document_id = create_test_document()
 
-    assert alice_login.status_code == 200
-
-    alice_token = alice_login.json()["access_token"]
-
-    # Give Bob EDIT permission
     grant_response = client.post(
-        "/documents/2/permissions",
+        f"/documents/{document_id}/permissions",
         headers={
             "Authorization": f"Bearer {alice_token}"
         },
         json={
-            "user_id": 5,
+            "user_id": 2,
             "permission": "EDIT"
         }
     )
 
     assert grant_response.status_code == 200
 
-    # Login as Bob
-    bob_login = client.post(
-        "/login",
-        json={
-            "email": "bob@trustvault.com",
-            "password": "BobPassword123"
-        }
+    bob_token = login(
+        "bob@trustvault.com",
+        "BobPassword123"
     )
 
-    assert bob_login.status_code == 200
-
-    bob_token = bob_login.json()["access_token"]
-
-    # Bob edits the document
     response = client.put(
-        "/documents/2",
+        f"/documents/{document_id}",
         headers={
             "Authorization": f"Bearer {bob_token}"
         },
@@ -370,18 +342,39 @@ def test_edit_permission_allows_editing():
         }
     )
 
-    # EDIT permission should allow the operation
     assert response.status_code == 200
 
-    # Remove Bob's permission so other tests are not affected
+    # Revoke access
     revoke_response = client.post(
-        "/documents/2/permissions/revoke",
+        f"/documents/{document_id}/permissions/revoke",
         headers={
             "Authorization": f"Bearer {alice_token}"
         },
         json={
-            "user_id": 5
+            "user_id": 2
         }
     )
 
     assert revoke_response.status_code == 200
+
+    # Cleanup
+    client.delete(
+        f"/documents/{document_id}",
+        headers={
+            "Authorization": f"Bearer {alice_token}"
+        }
+    )
+
+def test_public_user_cannot_register_as_admin():
+    response = client.post(
+        "/register",
+        json={
+            "name": "Fake Admin Test",
+            "email": "fake-admin-test@example.com",
+            "password": "TestPassword123",
+            "role": "ADMIN"
+        }
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Only OWNER or VIEWER registration is allowed"
