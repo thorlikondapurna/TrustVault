@@ -61,7 +61,7 @@ I also created the PostgreSQL database and generated the database tables.
 
 Initial implementation:
 
-[TrustVault initial implementation commit](https://github.com/thorlikondapurna/TrustVault/commit/429ebe7?utm_source=chatgpt.com)
+[TrustVault initial implementation commit](https://github.com/thorlikondapurna/TrustVault/commit/429ebe7)
 
 ---
 
@@ -107,9 +107,9 @@ The application now hashes passwords with Argon2 and uses JWT tokens for authent
 
 ### Commit
 
-Initial implementation:
+Initial authentication implementation:
 
-[TrustVault initial implementation commit](https://github.com/thorlikondapurna/TrustVault/commit/429ebe7?utm_source=chatgpt.com)
+[TrustVault initial implementation commit](https://github.com/thorlikondapurna/TrustVault/commit/429ebe7)
 
 ---
 
@@ -162,9 +162,9 @@ I also tested unauthorized access, download restrictions, deletion restrictions,
 
 ### Commit
 
-Initial implementation:
+Authorization and security tests:
 
-[TrustVault initial implementation commit](https://github.com/thorlikondapurna/TrustVault/commit/429ebe7?utm_source=chatgpt.com)
+[Secure frontend and authorization tests](https://github.com/thorlikondapurna/TrustVault/commit/94d4088)
 
 ---
 
@@ -210,15 +210,19 @@ I created:
 - `database/verify_audit_hashes.py`
 - `tests/test_audit_integrity.py`
 
-The existing audit records were successfully hashed and verified.
+The existing audit records were hashed and verified.
 
 The automated integrity test verifies the complete audit hash chain.
 
+The hash chain provides **tamper detection**: if an existing audit record is modified, the calculated hash chain no longer matches the stored values.
+
+Denied operations are also recorded in the audit trail.
+
 ### Commit
 
-Initial implementation:
+Audit logging and verification improvements:
 
-[TrustVault initial implementation commit](https://github.com/thorlikondapurna/TrustVault/commit/429ebe7?utm_source=chatgpt.com)
+[Fix audit logging and production API URLs](https://github.com/thorlikondapurna/TrustVault/commit/880bd2c)
 
 ---
 
@@ -245,6 +249,7 @@ AI helped identify security-focused test cases including:
 - READ-only edit attempts
 - Authorized EDIT access
 - Audit hash-chain integrity
+- Public users attempting to register as ADMIN
 
 ### What Needed Improvement
 
@@ -258,6 +263,8 @@ For example, the EDIT permission test needed to:
 4. Edit the document.
 5. Revoke Bob's permission afterward so later tests were not affected.
 
+The tests were also updated to create test documents dynamically instead of depending on a fixed document ID.
+
 ### What I Implemented
 
 I created and refined:
@@ -268,17 +275,19 @@ and:
 
 `tests/test_audit_integrity.py`
 
-The final automated test suite passed:
+The final automated security test suite passed:
 
 ```text
-11 passed
+12 passed
 ```
+
+The tests verify important security properties including authorization, permission revocation, document deletion restrictions, upload validation, direct storage protection, and audit hash-chain integrity.
 
 ### Commit
 
-Initial implementation:
+Security testing improvements:
 
-[TrustVault initial implementation commit](https://github.com/thorlikondapurna/TrustVault/commit/429ebe7?utm_source=chatgpt.com)
+[Add admin registration security test](https://github.com/thorlikondapurna/TrustVault/commit/8acf2b2)
 
 ---
 
@@ -317,7 +326,7 @@ I created the final `README.md`, saved it, committed it separately, and pushed i
 
 ### Commit
 
-[README documentation commit](https://github.com/thorlikondapurna/TrustVault/commit/8d483d3?utm_source=chatgpt.com)
+[README documentation commit](https://github.com/thorlikondapurna/TrustVault/commit/8d483d3)
 
 ---
 
@@ -337,3 +346,5 @@ The main areas where AI assistance was used were:
 The developer reviewed, modified, tested, debugged, and verified the generated suggestions before using them in the project.
 
 The final implementation was tested locally using the TrustVault PostgreSQL database and automated Pytest security tests.
+
+The final automated security test suite passed all 12 tests.
